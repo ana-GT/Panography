@@ -510,7 +510,7 @@ int main( int argc, char** argv )
             case CHESSBOARD:
 	      printf("[%d] Finding chessboard corners \n", i);
 	      found = findChessboardCorners( view, boardSize, pointbuf,
-					     CV_CALIB_CB_NORMALIZE_IMAGE );
+					     CV_CALIB_CB_ADAPTIVE_THRESH | CV_CALIB_CB_FAST_CHECK | CV_CALIB_CB_NORMALIZE_IMAGE );
 	      printf("End finding chessboard corners found: %d - Number of points: %d\n", found, pointbuf.size() );
 	      // drawChessboardCorners( viewDraw, boardSize, pointbuf, found );
 	      //imshow( "imageView", viewDraw );
