@@ -1,0 +1,5 @@
+myDeskPanography/image_0.jpg
+myDeskPanography/image_left30.jpg
+myDeskPanography/image_left60.jpg
+myDeskPanography/image_right30.jpg
+myDeskPanography/image_right60.jpg

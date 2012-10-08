@@ -20,6 +20,7 @@ Ransac::Ransac( char *_filenames ) {
   mMinHessian = 400;
   mRadiusFactor = 3.0; // 3.0
   mThresh = 5; // pixels.
+  mFactor = 2;
 
   // For random generation
   srand( time(NULL) );
@@ -50,6 +51,30 @@ Ransac::~Ransac() {
 }
 
 ////////////////////////////// RANSAC ////////////////////////////////////////////
+
+/**
+ * @function Ransac_Homography2D2
+ */
+cv::Mat Ransac::Ransac_Homography2D2( int _ind1, int _ind2 ) {
+  
+  int totalSamples = mMatches[_ind1][_ind2].size();
+  std::vector<cv::Point2f> points1, points2;
+  cv::Point2f p1, p2;
+
+  // Get corresponding points
+  for( int i = 0; i < totalSamples; ++i ) {
+    getPointsFromMatch( _ind1, _ind2, 
+			mMatches[_ind1][_ind2][i],
+			p1, p2 );
+    points1.push_back( p1 );
+    points2.push_back( p2 );
+  }
+
+  //-- Find homography
+  cv::Mat H = cv::findHomography( cv::Mat(points1), cv::Mat( points2), 
+				  CV_RANSAC );
+  return H;
+}
 
 /**
  * @function Ransac_Homography2D
@@ -144,21 +169,23 @@ cv::Mat Ransac::getModel_Homography2D( int _ind1,
   // Compute the wonderful SVD :)
   cv::SVD::compute( A, D, U, Vt );
   V = Vt.t();
-  
+  printf("V cols: %d rows: %d \n", V.cols, V.rows);
   // H is the last column of V (nullspace of A)
   cv::Mat transf = cv::Mat::zeros( 3, 3, CV_32FC1 );
+  
+  float h33 = V.at<float>(8,7);
 
-  transf.at<float>(0,0) = V.at<float>(0,7);
-  transf.at<float>(0,1) = V.at<float>(1,7);
-  transf.at<float>(0,2) = V.at<float>(2,7);
+  transf.at<float>(0,0) = V.at<float>(0,7) / h33;
+  transf.at<float>(0,1) = V.at<float>(1,7) / h33;
+  transf.at<float>(0,2) = V.at<float>(2,7) / h33;
 
-  transf.at<float>(1,0) = V.at<float>(3,7);
-  transf.at<float>(1,1) = V.at<float>(4,7);
-  transf.at<float>(1,2) = V.at<float>(5,7);
+  transf.at<float>(1,0) = V.at<float>(3,7) / h33;
+  transf.at<float>(1,1) = V.at<float>(4,7) / h33;
+  transf.at<float>(1,2) = V.at<float>(5,7) / h33;
 
-  transf.at<float>(2,0) = V.at<float>(6,7);
-  transf.at<float>(2,1) = V.at<float>(7,7);
-  transf.at<float>(2,2) = V.at<float>(8,7);
+  transf.at<float>(2,0) = V.at<float>(6,7) / h33;
+  transf.at<float>(2,1) = V.at<float>(7,7) / h33;
+  transf.at<float>(2,2) = V.at<float>(8,7) / h33;
 
   return transf;
 }
@@ -218,6 +245,25 @@ void Ransac::getPointsFromMatch( int _ind1, int _ind2,
   
   p2 = mKeypoints[_ind2][idx2].pt; 
   _y2 = p2.y; _x2 = p2.x;
+  
+}
+
+/**
+ * @function getPointsFromMatch
+ */
+void Ransac::getPointsFromMatch( int _ind1, int _ind2, 
+				 const cv::DMatch &_match,
+				 cv::Point2f &_p1, 
+				 cv::Point2f &_p2 ) {
+
+  int idx1; int idx2;
+  
+  // Get both 2D Points from keypoint info
+  idx1 = _match.queryIdx;
+  idx2 = _match.trainIdx;
+  
+  _p1 = mKeypoints[_ind1][idx1].pt; 
+  _p2 = mKeypoints[_ind2][idx2].pt; 
   
 }
 
@@ -296,7 +342,7 @@ void Ransac::getAllTransforms() {
 
   // Get the transforms to 0 frame only
   for( int i = 1; i < mNumFrames; ++i ) {
-    tf_global = Ransac_Homography2D( i, 0 );
+    tf_global = Ransac_Homography2D2( i, 0 );
     mGlobalTransforms[i] = tf_global.clone();
   }
 
@@ -313,14 +359,18 @@ void Ransac::getTransformedImages() {
 
   // Apply the transformations to the images
   mWarpedImages.resize( mNumFrames );
+  int warp_h = mHeight*2;
+  int warp_w = mWidth*2;
 
-  cv::Mat temp_warped = cv::Mat( mHeight, mWidth, CV_8UC3 );
+  //  mWarpedImages[0] = mRgbImages[0].clone();
+
+  cv::Mat temp_warped = cv::Mat( warp_h, warp_w, CV_8UC3 );
   for( int i = 0; i < mNumFrames; ++i ) {
     
     cv::warpPerspective( mRgbImages[i], 
 			 temp_warped, 
 			 mGlobalTransforms[i], 
-			 cv::Size( mWidth, mHeight ),
+			 cv::Size( warp_w, warp_h ),
 			 cv::INTER_LINEAR,
 			 cv::BORDER_CONSTANT,
 			 cv::Scalar() );
@@ -334,6 +384,74 @@ void Ransac::getTransformedImages() {
  */
 void Ransac::saveTransformedImages() {
 
+  // Reset some values
+  mOrigX.resize(mNumFrames);
+  mOrigY.resize(mNumFrames);
+
+  // Create ROIs to use
+  std::vector<cv::Mat> ROIs;
+  ROIs.resize( mNumFrames );
+
+  // Create a big image (Panography)
+  cv::Mat pan = cv::Mat( 4*mHeight, 8*mWidth, CV_8UC3 );
+
+  // Locate center image at the middle
+  int pan_w = pan.cols;
+  int pan_h = pan.rows;
+  int pan_w2 = pan_w / 2;
+  int pan_h2 = pan_h / 2;
+  int warp_w; int warp_h;
+  int warp_w2; int warp_h2;
+
+  //-- [0] Create ROI in the middle
+  warp_w = mWarpedImages[0].cols; 
+  warp_h = mWarpedImages[0].rows;
+
+  mOrigX[0] = pan_w2 - mWidth/2;
+  mOrigY[0] = pan_h2 - mHeight/2;
+ 
+  ROIs[0] = cv::Mat( pan, cv::Rect( mOrigX[0], mOrigY[0], warp_w, warp_h) );
+	
+  //-- [1-4] Create ROI for image i
+  /*
+  for( int i = 1; i < mNumFrames; ++i ) {
+
+    warp_w = mWarpedImages[i].cols;
+    warp_h = mWarpedImages[i].rows;
+
+    mOrigX[i] = mOrigX[0] + 0*(int) ( mGlobalTransforms[i].at<double>(0, 2) );
+    mOrigY[i] = mOrigY[0] + 0*(int) ( mGlobalTransforms[i].at<double>(1, 2) );
+    printf("Warp[%d]: Ox: %d Oy: %d w: %d h: %d \n", i, mOrigX[i], mOrigY[i], warp_w, warp_h);
+    
+    ROIs[i] = cv::Mat( pan, cv::Rect( mOrigX[i], mOrigY[i], warp_w, warp_h) );
+  }
+  */
+  //-- Put them all together
+  /*
+  for( int i = mNumFrames - 1; i >= 0; --i ) {
+    mWarpedImages[i].copyTo( ROIs[i] );
+  }
+  */
+
+  ROIs[4] = cv::Mat( pan, cv::Rect( mOrigX[0], mOrigY[0], 
+				    mWarpedImages[4].cols,
+				    mWarpedImages[4].rows ));
+  mWarpedImages[4].copyTo( ROIs[4] );
+  cv::Mat( pan, cv::Rect(0,0,mWidth, mHeight ));
+
+  ROIs[3] = cv::Mat( pan, cv::Rect( mOrigX[0], mOrigY[0], 
+				    mWarpedImages[3].cols,
+				    mWarpedImages[3].rows ));
+  mWarpedImages[3].copyTo( ROIs[3] );
+  cv::Mat( pan, cv::Rect(0,0,mWidth, mHeight ));
+
+
+  mWarpedImages[0].copyTo(ROIs[0]);
+		  
+  cv::imwrite("PanographyYeah.png", pan );
+
+
+  //-- Write them individually
   for( int i = 0; i < mNumFrames; ++i ) {
     char imgName[50];
     sprintf( imgName, "warped%03d.png", i );
@@ -519,7 +637,15 @@ bool Ransac::readImagesData( char* _filenames,
      _images.resize(0);
       return false;
     }    
-    _images.push_back( image );
+
+    // Save a bigger image
+    cv::Mat bigImage = cv::Mat( image.rows*mFactor, image.cols*mFactor, CV_8UC3 );
+    cv::Mat roi = cv::Mat( bigImage, cv::Rect(image.cols*mFactor/2 - image.cols/2,
+					      image.rows*mFactor/2 - image.rows/2,
+					      image.cols, image.rows) );
+    image.copyTo( roi );
+    
+    _images.push_back( bigImage );
   }
 
   return true;

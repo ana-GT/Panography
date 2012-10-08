@@ -8,8 +8,10 @@
 #define __RANSAC_H__
 
 //-- OpenCV headers
+#include "opencv2/core/core.hpp"
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/calib3d/calib3d.hpp"
 // For SURF
 #include "opencv2/nonfree/features2d.hpp"
 
@@ -27,6 +29,7 @@ class Ransac {
   ~Ransac();
 
   //-- RANSAC
+  cv::Mat Ransac_Homography2D2( int _ind1, int _ind2 );
   cv::Mat Ransac_Homography2D( int _ind1, int _ind2 );
   cv::Mat getModel_Homography2D( int _ind1,
 				 int _ind2, 
@@ -37,6 +40,10 @@ class Ransac {
 			   const cv::DMatch &_match,
 			   float &_x1, float &_y1, 
 			   float &_x2, float &_y2 );
+  void getPointsFromMatch( int _ind1, int _ind2, 
+			   const cv::DMatch &_match,
+			   cv::Point2f &_p1, 
+			   cv::Point2f &_p2 );
   std::vector<int> getRandomIndices( int _numSamples, 
 				     int _totalSamples );
   bool isInSet( int _index, 
@@ -84,11 +91,14 @@ class Ransac {
   // SURF Keypoint detection and descriptor
   int mMinHessian;
   float mRadiusFactor;
+  int mFactor;
 
   std::vector< std::vector<cv::KeyPoint> > mKeypoints; 
   std::vector< cv::Mat > mDescriptors;
   std::vector< std::vector< std::vector< cv::DMatch > > > mMatches;
-  
+  // Panography
+  std::vector<int> mOrigX;  
+  std::vector<int> mOrigY;
 
   // RANSAC variables
   int mN; /**< Num Trials */

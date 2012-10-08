@@ -43,7 +43,7 @@ int main( int argc, char* argv[] )  {
 	printf("Showing image %d out of %d \n", ind, ransac.getNumFrames() );
 	cv::imshow( rgbWindow, ransac.getRgb( ind ) );
 	cv::imshow( warpedWindow, ransac.getWarped( ind ) );
-	//cv::imshow( matchWindow, ransac.getMatchesDraw( ind, 0 ) );
+	cv::imshow( matchWindow, ransac.getMatchesDraw( ind, 0 ) );
 	//cv::imshow( matchWindow, ransac.Ransac_Homography2D( ind, 0 ) );
       }
    
